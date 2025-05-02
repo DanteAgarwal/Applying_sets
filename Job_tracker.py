@@ -1,5 +1,4 @@
 import streamlit as st
-
 from src.analytics import analytics_ui
 from src.database import init_db
 from src.job_application import JobApplicationForm, JobManager
@@ -27,5 +26,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # local_css()
     main()

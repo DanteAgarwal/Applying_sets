@@ -1,5 +1,6 @@
+import logging
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from random import choice, randint
 
 # Database setup
@@ -9,20 +10,22 @@ c = conn.cursor()
 # Creating table if it doesn't exist
 c.execute(
     """CREATE TABLE IF NOT EXISTS jobs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date_applied TEXT,
-    company_name TEXT,
-    job_title TEXT,
-    location TEXT,
-    job_link TEXT,
-    status TEXT,
-    follow_up_date TEXT,
-    interview_date TEXT,
-    recruiter_contact TEXT,
-    networking_contact TEXT,
-    notes TEXT,
-    priority TEXT
-)"""
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date_applied DATE NOT NULL,
+            company_name TEXT NOT NULL,
+            job_title TEXT NOT NULL,
+            location TEXT,
+            job_link TEXT UNIQUE,
+            status TEXT DEFAULT 'Applied',
+            follow_up_date DATE,
+            interview_date DATE,
+            recruiter_contact TEXT,
+            networking_contact TEXT,
+            notes TEXT,
+            priority TEXT CHECK(priority IN ('Low', 'Medium', 'High')) DEFAULT 'Medium',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )"""
 )
 conn.commit()
 
@@ -108,28 +111,18 @@ statuses = ["Applied", "Interview Scheduled", "Offer Received", "Rejected", "Gho
 priorities = ["High", "Medium", "Low"]
 
 # Generate fake job applications (25 records)
-for _ in range(25):
-    date_applied = datetime.today() - timedelta(days=randint(1, 60))
+for _ in range(100):
+    date_applied = datetime.now(tz=timezone.utc) - timedelta(days=randint(1, 60))
     company_name = choice(companies)
     job_title = choice(job_titles)
     location = choice(locations)
     job_link = f"https://{company_name.lower().replace(' ', '')}.com/jobs/{randint(1000, 9999)}"
     status = choice(statuses)
     follow_up_date = date_applied + timedelta(days=randint(5, 10))
-    interview_date = (
-        date_applied + timedelta(days=randint(10, 30))
-        if status == "Interview Scheduled"
-        else None
-    )
-    recruiter_contact = (
-        f"recruiter{randint(100, 999)}@{company_name.lower().replace(' ', '')}.com"
-    )
+    interview_date = date_applied + timedelta(days=randint(10, 30)) if status == "Interview Scheduled" else None
+    recruiter_contact = f"recruiter{randint(100, 999)}@{company_name.lower().replace(' ', '')}.com"
     networking_contact = f"contact{randint(100, 999)}@linkedin.com"
-    notes = (
-        "Follow up soon"
-        if status == "Applied"
-        else "In the process of scheduling interview"
-    )
+    notes = "Follow up soon" if status == "Applied" else "In the process of scheduling interview"
     c.execute(
         """INSERT INTO jobs (date_applied, company_name, job_title, location, job_link, status, follow_up_date,
         interview_date, recruiter_contact, networking_contact, notes, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -150,6 +143,9 @@ for _ in range(25):
     )
 
 conn.commit()
-print("25 fake job applications added successfully!")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.info("100 fake job applications added successfully!")
+
 
 conn.close()

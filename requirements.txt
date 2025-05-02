@@ -13,14 +13,12 @@ cycler==0.12.1
 dill==0.4.0
 distlib==0.3.9
 filelock==3.18.0
-flake8==7.2.0
 fonttools==4.57.0
 gitdb==4.0.12
 GitPython==3.1.41
 identify==2.6.10
 idna==3.10
 iniconfig==2.1.0
-isort==6.0.1
 Jinja2==3.1.6
 jsonschema==4.23.0
 jsonschema-specifications==2025.4.1
@@ -46,7 +44,6 @@ pyarrow==20.0.0
 pycodestyle==2.13.0
 pydeck==0.9.1
 pyflakes==3.3.2
-pylint==3.3.6
 pyparsing==3.2.3
 pytest==8.3.5
 pytest-mock==3.14.0
@@ -56,6 +53,7 @@ PyYAML==6.0.2
 referencing==0.36.2
 requests==2.32.3
 rpds-py==0.24.0
+ruff==0.11.8
 seaborn==0.13.2
 six==1.17.0
 smmap==5.0.2
