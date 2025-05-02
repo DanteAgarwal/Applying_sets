@@ -1,146 +1,86 @@
 import logging
-import sqlite3
-from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from src.model import Base, Job
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Create SQLite database engine
+engine = create_engine("sqlite:///job_tracker.db")
 
-# Database setup
-# def init_db():
-#     conn = sqlite3.connect("job_tracker.db", check_same_thread=False)
-#     c = conn.cursor()
-#     c.execute(
-#         """CREATE TABLE IF NOT EXISTS jobs (
-#                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-#                     date_applied DATE NOT NULL,
-#                     company_name TEXT NOT NULL,
-#                     job_title TEXT NOT NULL,
-#                     location TEXT,
-#                     job_link TEXT UNIQUE,
-#                     status TEXT DEFAULT 'Applied',
-#                     follow_up_date DATE,
-#                     interview_date DATE,
-#                     recruiter_contact TEXT,
-#                     networking_contact TEXT,
-#                     notes TEXT,
-#                     priority TEXT CHECK(priority IN ('Low', 'Medium', 'High')) DEFAULT 'Medium',
-#                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-#                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP|
-#                     )"""
-#     )
-#     c.execute("CREATE INDEX IF NOT EXISTS idx_status ON jobs (status)")
-#     c.execute("CREATE INDEX IF NOT EXISTS idx_priority ON jobs (priority)")
-#     c.execute("CREATE INDEX IF NOT EXISTS idx_date_applied ON jobs (date_applied)")
-#     conn.commit()
-#     return conn
+# Create tables in the database
+Base.metadata.create_all(engine)
+
+# Create a session factory
+Session = sessionmaker(bind=engine)
+
+
 def init_db():
-    conn = sqlite3.connect("job_tracker.db", check_same_thread=False)
-    c = conn.cursor()
-    c.execute(
-        """CREATE TABLE IF NOT EXISTS jobs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date_applied DATE NOT NULL,
-            company_name TEXT NOT NULL,
-            job_title TEXT NOT NULL,
-            location TEXT,
-            job_link TEXT UNIQUE,
-            status TEXT DEFAULT 'Applied',
-            follow_up_date DATE,
-            interview_date DATE,
-            recruiter_contact TEXT,
-            networking_contact TEXT,
-            notes TEXT,
-            priority TEXT CHECK(priority IN ('Low', 'Medium', 'High')) DEFAULT 'Medium',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )"""
-    )
-    c.execute("CREATE INDEX IF NOT EXISTS idx_status ON jobs (status)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_priority ON jobs (priority)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_date_applied ON jobs (date_applied)")
-    conn.commit()
-    return conn
+    return Session()
 
 
 # Insert a new job application into the database
-def add_job_application(conn, data):
+def add_job_application(session, data):
     try:
-        c = conn.cursor()
-        c.execute(
-            """INSERT INTO jobs (date_applied, company_name,
-            job_title, location, job_link, status, follow_up_date,
-            interview_date, recruiter_contact, networking_contact,
-            notes, priority, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                data["date_applied"],
-                data["company_name"],
-                data["job_title"],
-                data["location"],
-                data["job_link"],
-                data["status"],
-                data["follow_up_date"],
-                data["interview_date"],
-                data["recruiter_contact"],
-                data["networking_contact"],
-                data["notes"],
-                data["priority"],
-                datetime.now(tz=timezone.utc),
-                datetime.now(tz=timezone.utc),
-            ),
+        new_job = Job(
+            date_applied=data["date_applied"],
+            company_name=data["company_name"],
+            job_title=data["job_title"],
+            location=data["location"],
+            job_link=data["job_link"],
+            status=data["status"],
+            follow_up_date=data["follow_up_date"],
+            interview_date=data["interview_date"],
+            recruiter_contact=data["recruiter_contact"],
+            networking_contact=data["networking_contact"],
+            notes=data["notes"],
+            priority=data["priority"],
         )
-        conn.commit()
+        session.add(new_job)
+        session.commit()
         logger.info("Job application added successfully.")
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.exception("An error occurred while adding job application")
         st.error(f"An error occurred: {e}")
 
 
 # Fetch all job applications
-def fetch_all_jobs(conn):
+def fetch_all_jobs(session):
     try:
-        return pd.read_sql("SELECT * FROM jobs", conn)
-    except sqlite3.Error as e:
+        return pd.read_sql(session.query(Job).statement, session.bind)
+    except Exception as e:
         logger.exception("Database error while fetching job applications")
         st.error(f"Database error: {e}")
         return pd.DataFrame()
 
 
 # Update a job application by ID
-def update_job_application(conn, application_id, updated_data):
+def update_job_application(session, application_id, updated_data):
     try:
-        c = conn.cursor()
-        c.execute(
-            """UPDATE jobs SET status = ?,
-            follow_up_date = ?, interview_date = ?, notes = ?, updated_at = ?
-    WHERE id = ?""",
-            (
-                updated_data["status"],
-                updated_data["follow_up_date"],
-                updated_data["interview_date"],
-                updated_data["notes"],
-                datetime.now(tz=timezone.utc),
-                application_id,
-            ),
-        )
-        conn.commit()
+        job = session.query(Job).filter_by(id=application_id).one()
+        job.status = updated_data["status"]
+        job.follow_up_date = updated_data["follow_up_date"]
+        job.interview_date = updated_data["interview_date"]
+        job.notes = updated_data["notes"]
+        session.commit()
         logger.info("Job application %s updated successfully.", application_id)
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.exception("Database error while updating job application")
         st.error(f"Database error: {e}")
 
 
 # Delete a job application by ID
-def delete_job_application(conn, application_id):
+def delete_job_application(session, application_id):
     try:
-        c = conn.cursor()
-        c.execute("DELETE FROM jobs WHERE id = ?", (application_id,))
-        conn.commit()
-        logger.info("Job application %s updated successfully.", application_id)
-    except sqlite3.Error as e:
+        job = session.query(Job).filter_by(id=application_id).one()
+        session.delete(job)
+        session.commit()
+        logger.info("Job application %s deleted successfully.", application_id)
+    except Exception as e:
         logger.exception("Database error while deleting job application")
         st.error(f"Database error: {e}")

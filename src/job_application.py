@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -11,10 +12,10 @@ from src.database import (
 
 
 class JobApplicationForm:
-    def __init__(self, conn):
-        self.conn = conn
+    def __init__(self, session):
+        self.session = session
 
-    def add_job_ui(self):
+    def add_job_ui(self):  # noqa: C901
         st.markdown("### ➕ Add New Job Application")  # noqa: RUF001
         st.info("Fill the form below to track your job application. You got this! 🚀")
         st.markdown("---")
@@ -91,8 +92,27 @@ class JobApplicationForm:
             submit_button = st.form_submit_button("💾 Save Application")
 
             if submit_button:
-                if not company_name or not job_title:
-                    st.error("Company Name and Job Title are required fields.")
+                # Validation
+                errors = []
+
+                if not company_name:
+                    errors.append("Company Name is required.")
+                if not job_title:
+                    errors.append("Job Title is required.")
+                if job_link and not self.is_valid_url(job_link):
+                    errors.append("Job Link is not a valid URL.")
+                if date_applied > datetime.now(tz=timezone.utc).date():
+                    errors.append("Date Applied cannot be in the future.")
+                if follow_up_date < date_applied:
+                    errors.append("Follow-up Date cannot be before Date Applied.")
+                if interview_date and interview_date < date_applied:
+                    errors.append("Interview Date cannot be before Date Applied.")
+                if job_link and self.is_job_link_unique(job_link):
+                    errors.append("Job Link must be unique.")
+
+                if errors:
+                    for error in errors:
+                        st.error(error)
                 else:
                     job_data = {
                         "date_applied": date_applied,
@@ -108,9 +128,28 @@ class JobApplicationForm:
                         "notes": notes,
                         "priority": priority,
                     }
-                    add_job_application(self.conn, job_data)
+                    add_job_application(self.session, job_data)
                     st.success(f"✅ Application for *{job_title}* at *{company_name}* saved!")
                     st.balloons()
+
+    def is_valid_url(self, url):
+        # Simple URL validation using regex
+        url_pattern = re.compile(
+            r"^(https?|ftp):\/\/"  # http:// or https://
+            r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|"  # domain...
+            r"localhost|"  # localhost...
+            r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|"  # ...or ipv4
+            r"\[?[A-F0-9]*:[A-F0-9:]+\]?)"  # ...or ipv6
+            r"(?::\d+)?"  # optional port
+            r"(?:\/[^\s]*)?$",
+            re.IGNORECASE,
+        )
+        return re.match(url_pattern, url) is not None
+
+    def is_job_link_unique(self, job_link):
+        # Check if the job link is unique
+        jobs = fetch_all_jobs(self.session)
+        return not jobs[jobs["job_link"] == job_link].empty
 
 
 class JobCard:
@@ -266,12 +305,12 @@ class JobCard:
 
 
 class JobManager:
-    def __init__(self, conn):
-        self.conn = conn
+    def __init__(self, session):
+        self.session = session
 
     def view_update_ui(self):
         st.markdown("## 📋 View, Filter & Manage Job Applications")
-        jobs = fetch_all_jobs(self.conn)
+        jobs = fetch_all_jobs(self.session)
 
         if jobs.empty:
             st.warning("No applications found. Start adding now!")
@@ -380,10 +419,10 @@ class JobManager:
                     "interview_date": new_interview_date,
                     "notes": new_notes,
                 }
-                update_job_application(self.conn, application_id, updated_data)
+                update_job_application(self.session, application_id, updated_data)
                 st.success(f"✅ Application {application_id} updated!")
 
             if delete_button:
-                delete_job_application(self.conn, application_id)
+                delete_job_application(self.session, application_id)
                 st.success(f"🗑️ Application {application_id} deleted!")
                 st.balloons()
