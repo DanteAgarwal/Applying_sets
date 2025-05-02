@@ -1,13 +1,19 @@
 import streamlit as st
-from database import init_db
-from job_application import JobApplicationForm,  JobManager 
-from analytics import analytics_ui
+
+from src.analytics import analytics_ui
+from src.database import init_db
+from src.job_application import JobApplicationForm, JobManager
+
 
 def main():
     conn = init_db()
 
     st.title("📊 Job Application Tracker")
-    menu = ["Add Job Application", "View & Update Applications", "Analytics Dashboard"]
+    menu = [
+        "Add Job Application",
+        "View & Update Applications",
+        "Analytics Dashboard",
+    ]
     choice = st.sidebar.selectbox("Select Option", menu)
 
     if choice == "Add Job Application":
