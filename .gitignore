@@ -1,0 +1,7 @@
+# Ignore local database files
+*.db
+
+# Ignore virtual environment folder
+venv/
+
+test.py
