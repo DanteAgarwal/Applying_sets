@@ -1,147 +1,9 @@
-# import streamlit as st
-# import pandas as pd
-# import plotly.express as px
-# from database import fetch_all_jobs
-
-# def analytics_ui(conn):
-#     st.subheader("📊 Job Application Insights")
-
-#     # Fetch data
-#     df = fetch_all_jobs(conn)
-#     if df.empty:
-#         st.warning("No applications yet! Add some to see insights.")
-#         return
-
-#     # Sidebar for filters
-#     st.sidebar.header("Filter Options")
-#     status_filter = st.sidebar.multiselect("Select Status", df['status'].unique(), default=df['status'].unique())
-#     priority_filter = st.sidebar.multiselect("Select Priority", df['priority'].unique(), default=df['priority'].unique())
-#     date_range = st.sidebar.date_input("Select Date Range", [df['date_applied'].min(), df['date_applied'].max()])
-
-#     # Apply filters
-#     filtered_df = df[
-#         (df['status'].isin(status_filter)) &
-#         (df['priority'].isin(priority_filter)) &
-#         (pd.to_datetime(df['date_applied']).between(pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])))
-#     ]
-
-#     if filtered_df.empty:
-#         st.warning("No data available for the selected filters.")
-#         return
-
-#     # Summary Statistics
-#     st.markdown("### Summary Statistics")
-#     total_applications = len(filtered_df)
-#     interviews_scheduled = filtered_df[filtered_df['status'] == 'Interview Scheduled'].shape[0]
-#     offers_received = filtered_df[filtered_df['status'] == 'Offer Received'].shape[0]
-#     rejections = filtered_df[filtered_df['status'] == 'Rejected'].shape[0]
-#     ghosted = filtered_df[filtered_df['status'] == 'Ghosted'].shape[0]
-
-#     col1, col2, col3, col4, col5 = st.columns(5)
-#     col1.metric("Total Applications", total_applications)
-#     col2.metric("Interviews Scheduled", interviews_scheduled)
-#     col3.metric("Offers Received", offers_received)
-#     col4.metric("Rejections", rejections)
-#     col5.metric("Ghosted", ghosted)
-
-#      # Personalized Insights
-#     st.markdown("### Personalized Insights")
-#     if not filtered_df.empty:
-#         st.write("Here are some personalized insights based on your application data:")
-#         if offers_received > 0:
-#             st.success(f"Congratulations! You have received {offers_received} offers.")
-#         if interviews_scheduled > 0:
-#             st.info(f"You have {interviews_scheduled} interviews scheduled. Prepare well!")
-#         if rejections > 0:
-#             st.warning(f"You have been rejected {rejections} times. Keep improving!")
-#         if ghosted > 0:
-#             st.warning(f"You have been ghosted {ghosted} times. Consider following up.")
-
-
-#     # Status Breakdown
-#     st.markdown("### Application Status Breakdown")
-#     status_counts = filtered_df['status'].value_counts().reset_index()
-#     status_counts.columns = ['Status', 'Count']
-
-#     fig = px.pie(status_counts, values='Count', names='Status', title='Application Status Distribution', hole=0.5)
-#     st.plotly_chart(fig)
-
-#     # Priority Breakdown
-#     st.markdown("### Priority Breakdown")
-#     priority_counts = filtered_df['priority'].value_counts().reset_index()
-#     priority_counts.columns = ['Priority', 'Count']
-
-#     fig = px.pie(priority_counts, values='Count', names='Priority', title='Priority Distribution', hole=0.5)
-#     st.plotly_chart(fig)
-
-#     # Applications Over Time
-#     st.markdown("### Applications Over Time")
-#     filtered_df['date_applied'] = pd.to_datetime(filtered_df['date_applied'])
-#     applications_over_time = filtered_df.groupby(filtered_df['date_applied'].dt.to_period('M')).size().reset_index(name='Count')
-#     applications_over_time['date_applied'] = applications_over_time['date_applied'].astype(str)
-
-#     fig = px.line(applications_over_time, x='date_applied', y='Count', title='Applications Over Time',
-# labels={'Count': 'Number of Applications', 'date_applied': 'Month'})
-#     st.plotly_chart(fig)
-
-#     # Average Time to Follow-up
-#     st.markdown("### Average Time to Follow-up")
-#     filtered_df['follow_up_date'] = pd.to_datetime(filtered_df['follow_up_date'])
-#     filtered_df['time_to_follow_up'] = (filtered_df['follow_up_date'] - filtered_df['date_applied']).dt.days
-#     avg_time_to_follow_up = filtered_df.groupby('status')['time_to_follow_up'].mean().reset_index()
-#     fig = px.bar(avg_time_to_follow_up, x='status', y='time_to_follow_up',
-# title='Average Time to Follow-up by Status',
-# labels={'time_to_follow_up': 'Average Days to Follow-up', 'status': 'Status'},
-# color='time_to_follow_up', color_continuous_scale='Viridis')
-#     st.plotly_chart(fig)
-
-#     # Most Applied Companies and Job Titles
-#     st.markdown("### Most Applied Companies and Job Titles")
-#     company_counts = filtered_df['company_name'].value_counts().head(5).reset_index(name='Count')
-#     company_counts.columns = ['Company', 'Count']
-
-#     job_title_counts = filtered_df['job_title'].value_counts().head(5).reset_index(name='Count')
-#     job_title_counts.columns = ['Job Title', 'Count']
-
-#     col1, col2 = st.columns(2)
-#     with col1:
-#         fig = px.bar(company_counts, x='Count', y='Company', orientation='h', title='Top 5 Companies Applied To', color='Count',
-#  color_continuous_scale='Blues')
-#         st.plotly_chart(fig)
-
-#     with col2:
-#         fig = px.bar(job_title_counts,
-#  x='Count', y='Job Title', orientation='h',
-#  title='Top 5 Job Titles Applied To', color='Count',
-# color_continuous_scale='Greens')
-#         st.plotly_chart(fig)
-
-#     # Conversion Rates
-#     st.markdown("### Conversion Rates")
-#     conversion_rates = filtered_df.groupby('status').size().reset_index(name='Count')
-#     conversion_rates['Conversion Rate (%)'] = (conversion_rates['Count'] / len(filtered_df)) * 100
-
-#     fig = px.bar(conversion_rates, x='status',
-#     y='Conversion Rate (%)', title='Conversion Rates by Status',
-#     labels={'Conversion Rate (%)': 'Conversion Rate (%)', 'status': 'Status'},
-#     color='Conversion Rate (%)', color_continuous_scale='Viridis')
-#     st.plotly_chart(fig)
-
-#     # Follow-up Reminders
-#     st.markdown("### Follow-up Reminders")
-#     today = pd.to_datetime('today').normalize()
-#     upcoming_follow_ups = filtered_df[filtered_df['follow_up_date'] >= today]
-
-#     if not upcoming_follow_ups.empty:
-#         st.write("Here are your upcoming follow-ups:")
-#         st.dataframe(upcoming_follow_ups[['company_name', 'job_title', 'follow_up_date', 'notes']])
-#     else:
-#         st.write("No upcoming follow-ups.")
-
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from src.database import fetch_all_jobs
+from src.email_engine import EmailEngine
+from src.model import Contact, EmailLog, EmailTemplate
+from src.database import fetch_all_jobs, get_all_templates
 
 
 def get_colorscale(name):
@@ -425,3 +287,85 @@ def analytics_ui(conn):
     engine.show_top_targets()
     engine.show_conversion()
     engine.show_heatmap()
+
+
+def response_tracking_ui(session):
+    """Track email response rates and effectiveness"""
+    st.subheader("📈 Outreach Effectiveness")
+    
+    # Get email logs with contact/join data
+    logs = session.query(EmailLog).order_by(EmailLog.sent_at.desc()).limit(100).all()
+    
+    if not logs:
+        st.info("Send some emails first to see response analytics!")
+        return
+    
+    # Calculate metrics
+    total_sent = len([l for l in logs if l.status == "sent"])
+    replied_contacts = session.query(Contact).filter_by(replied=True).count()
+    response_rate = (replied_contacts / total_sent * 100) if total_sent > 0 else 0
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("📧 Emails Sent (30d)", total_sent)
+    col2.metric("✅ Replies Received", replied_contacts)
+    col3.metric("📊 Response Rate", f"{response_rate:.1f}%")
+    
+    # Template effectiveness
+    st.markdown("### 📧 Template Effectiveness")
+    templates = get_all_templates(session)
+    effectiveness = []
+    
+    for template in templates:
+        sent_count = session.query(EmailLog).filter_by(template_id=template.id, status="sent").count()
+        if sent_count > 0:
+            # Get contacts who received this template
+            contact_ids = [l.contact_id for l in session.query(EmailLog).filter_by(template_id=template.id)]
+            replied_count = session.query(Contact).filter(
+                Contact.id.in_(contact_ids),
+                Contact.replied == True
+            ).count()
+            
+            effectiveness.append({
+                "Template": template.name,
+                "Sent": sent_count,
+                "Replied": replied_count,
+                "Rate": f"{(replied_count/sent_count*100):.1f}%"
+            })
+    
+    if effectiveness:
+        st.dataframe(effectiveness)
+    
+    # Recent activity timeline
+    st.markdown("### 📅 Recent Activity")
+    activity = []
+    for log in logs[:20]:
+        contact = session.query(Contact).get(log.contact_id)
+        activity.append({
+            "When": log.sent_at.strftime("%Y-%m-%d %H:%M"),
+            "Contact": contact.name if contact else "Unknown",
+            "Company": contact.company_name if contact else "",
+            "Template": session.query(EmailTemplate).get(log.template_id).name if log.template_id else "Manual",
+            "Status": "✅ Replied" if (contact and contact.replied) else "⏳ Pending"
+        })
+    
+    st.dataframe(activity)
+    
+    # One-click reply marking
+    st.markdown("### ✅ Mark as Replied")
+    contacts_needing_reply = session.query(Contact).filter_by(replied=False, needs_followup=True).all()
+    
+    if contacts_needing_reply:
+        contact_options = [f"{c.name} - {c.company_name}" for c in contacts_needing_reply]
+        selected_idx = st.selectbox("Select contact who replied", range(len(contact_options)), 
+                                   format_func=lambda x: contact_options[x])
+        
+        reply_notes = st.text_area("Reply details (optional)", placeholder="E.g., 'Scheduled interview for Friday'")
+        
+        if st.button("✅ Mark as Replied", type="primary"):
+            contact_id = contacts_needing_reply[selected_idx].id
+            engine = EmailEngine(session)
+            if engine.mark_as_replied(contact_id, reply_notes):
+                st.success("Contact marked as replied! Removed from follow-up list.")
+                st.rerun()
+    else:
+        st.success("✅ All contacts have replied or are up-to-date!")
