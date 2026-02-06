@@ -1,5 +1,5 @@
 # Ignore local database files
-*.db
+job_tracker.db
 
 # Ignore virtual environment folder
 .venv/

@@ -1,11 +1,12 @@
 """
-Email outreach UI components for Streamlit
+Smart Outreach UI - Rule-based, efficient, and user-friendly
+Features: Contextual guidance, smart defaults, validation rules, progress tracking
 """
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import time
 
-from src.calendar_integration import calendar_download_button
 from src.model import Contact, EmailTemplate, Job
 from src.email_engine import EmailEngine, get_active_email_account, test_smtp_connection
 from src.database import (
@@ -15,599 +16,624 @@ from src.database import (
 )
 from src.security import CredentialManager
 
+# =====================================================
+# SMART VALIDATION RULES
+# =====================================================
+
+def validate_email_setup(email, password, smtp_server, smtp_port):
+    """Rule-based validation for email setup"""
+    rules = [
+        (bool(email.strip()), "Email address is required"),
+        (bool(password.strip()), "App password is required"),
+        ("@" in email and "." in email.split("@")[-1], "Invalid email format"),
+        (smtp_port in [465, 587, 25], f"Uncommon SMTP port: {smtp_port}. Standard ports are 465 (SSL) or 587 (TLS)"),
+        (len(password) >= 16, "App passwords are typically 16+ characters")
+    ]
+    return all(rule[0] for rule in rules), [msg for valid, msg in rules if not valid]
+
+def validate_campaign(selected_contacts, template, account):
+    """Rule-based validation before sending"""
+    rules = [
+        (account is not None, "⚠️ Email account not configured. Go to SETUP tab first."),
+        (len(selected_contacts) > 0, "⚠️ No contacts selected. Select at least one recipient."),
+        (template is not None, "⚠️ No template selected. Choose an email template."),
+        (len(selected_contacts) <= 50, f"⚠️ Too many contacts ({len(selected_contacts)}). Max 50 per campaign to avoid spam flags."),
+        (all(c.get('email') for c in selected_contacts), "⚠️ Some contacts missing email addresses. Clean your contact list first.")
+    ]
+    return all(rule[0] for rule in rules), [msg for valid, msg in rules if not valid]
+
+def get_smart_template_suggestion(contact, templates):
+    """Rule-based template selection"""
+    if not contact.last_contacted:
+        return next((t for t in templates if "cold" in t.name.lower()), templates[0])
+    
+    days_since = (datetime.now(timezone.utc) - contact.last_contacted).days
+    if days_since >= 14:
+        return next((t for t in templates if "follow" in t.name.lower() and "2" in t.name.lower()), 
+                   next((t for t in templates if t.is_followup), templates[0]))
+    elif days_since >= 7:
+        return next((t for t in templates if "follow" in t.name.lower() and "1" in t.name.lower()), 
+                   next((t for t in templates if t.is_followup), templates[0]))
+    return templates[0]
+
+# =====================================================
+# PROVIDER AUTO-CONFIG
+# =====================================================
+
+SMTP_CONFIGS = {
+    "Gmail": {"server": "smtp.gmail.com", "port": 587, "help": "Use App Password (16 chars) from Google Account settings"},
+    "Outlook/Hotmail": {"server": "smtp-mail.outlook.com", "port": 587, "help": "Use your Microsoft account password"},
+    "Yahoo": {"server": "smtp.mail.yahoo.com", "port": 587, "help": "Use App Password from Yahoo Account Security"},
+    "Custom": {"server": "", "port": 587, "help": "Enter your SMTP server details"}
+}
+
 def email_setup_ui(session):
-    """FR-8: Email Account Setup UI"""
+    """Smart email setup with provider presets and validation"""
     st.subheader("📧 Email Account Setup")
     
-    # Show current account if exists
-    current_account = get_active_email_account(session)
-    if current_account:
-        st.success(f"✅ Active account: {current_account.email_address}")
-        st.caption(f"SMTP: {current_account.smtp_server}:{current_account.smtp_port}")
-        
-        if st.button("Disconnect Account"):
-            current_account.is_active = False
+    # Current account status
+    account = get_active_email_account(session)
+    if account:
+        st.success(f"✅ **Active**: {account.email_address} | {account.smtp_server}:{account.smtp_port}")
+        if st.button("🔌 Disconnect Account", key="disconnect_email"):
+            account.is_active = False
             session.commit()
             st.rerun()
+        st.markdown("---")
     
-    st.markdown("---")
-    st.markdown("### 🔧 Configure New Account")
-    st.info("""
-    **Gmail Users**: You need an [App Password](https://myaccount.google.com/apppasswords)
-    - Enable 2FA on your Google account
-    - Generate an App Password (select "Mail" and your device)
-    - Use that 16-character password here
-    """)
-    
-    with st.form("email_setup"):
-        email = st.text_input("📧 Email Address")
-        app_password = st.text_input("🔑 App Password", type="password")
-        smtp_server = st.text_input("SMTP Server", value="smtp.gmail.com")
-        smtp_port = st.number_input("SMTP Port", value=587, min_value=1, max_value=65535)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            test_only = st.form_submit_button("🧪 Test Connection Only")
-        with col2:
-            save_setup = st.form_submit_button("💾 Save & Connect")
-        
-        if test_only or save_setup:
-            if not email or not app_password:
-                st.error("Email and password are required")
-            else:
-                success, message = test_smtp_connection(email, app_password, smtp_server, smtp_port)
-                
-                if success:
-                    st.success(message)
-                    if save_setup:
-                        engine = EmailEngine(session)
-                        success, msg = engine.setup_account(email, app_password, smtp_server, smtp_port)
-                        if success:
-                            st.success(msg)
-                            st.balloons()
-                        else:
-                            st.error(msg)
-                else:
-                    st.error(message)
-
-def template_manager_ui(session):
-    """FR-9: Email Template Management UI"""
-    st.subheader("✉️ Email Templates")
-    
-    # Create default templates if none exist
-    if len(get_all_templates(session)) == 0:
-        with st.spinner("Creating default templates..."):
-            add_email_template(
-                session,
-                "Cold Outreach",
-                "Interest in {job_title} Position at {company}",
-                """Dear {name},
-
-I hope this email finds you well. I'm writing to express my interest in the {job_title} position at {company}.
-
-[Your introduction and why you're interested...]
-
-I've attached my resume for your review and would welcome the opportunity to discuss how my background aligns with your needs.
-
-Thank you for your time and consideration.
-
-Best regards,
-{your_name}"""
-            )
-            add_email_template(
-                session,
-                "Follow-up #1",
-                "Following up - {job_title} Opportunity at {company}",
-                """Dear {name},
-
-I hope you're doing well. I wanted to follow up on my previous email regarding the {job_title} position at {company}.
-
-I remain very interested in this opportunity and would appreciate any updates on the hiring process.
-
-Thank you for your time.
-
-Best regards,
-{your_name}""",
-                is_followup=True,
-                days_after_previous=7
-            )
-            add_email_template(
-                session,
-                "Follow-up #2",
-                "Second follow-up - {job_title} Position",
-                """Dear {name},
-
-I hope this message finds you well. I'm following up again regarding my application for the {job_title} role at {company}.
-
-I understand you're busy, but I wanted to reiterate my strong interest in this position and {company} as a whole.
-
-Please let me know if there's any additional information I can provide.
-
-Best regards,
-{your_name}""",
-                is_followup=True,
-                days_after_previous=7
-            )
-            st.success("✅ Default templates created!")
-            st.rerun()
-    
-    # Display templates
-    templates = get_all_templates(session)
-    
-    for template in templates:
-        with st.expander(f"{'🔄' if template.is_followup else '📧'} {template.name}", expanded=False):
-            with st.form(f"template_{template.id}"):
-                name = st.text_input("Template Name", template.name, key=f"name_{template.id}")
-                subject = st.text_input("Subject Line", template.subject, key=f"subj_{template.id}")
-                body = st.text_area("Email Body", template.body, height=300, key=f"body_{template.id}")
-                is_followup = st.checkbox("Is Follow-up Template?", template.is_followup, key=f"fu_{template.id}")
-                days_after = st.number_input("Days After Previous Contact", 
-                                            value=template.days_after_previous, 
-                                            min_value=1, 
-                                            key=f"days_{template.id}")
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    save_btn = st.form_submit_button("💾 Save")
-                with col2:
-                    preview_btn = st.form_submit_button("👁️ Preview")
-                with col3:
-                    delete_btn = st.form_submit_button("🗑️ Delete")
-                
-                if save_btn:
-                    update_template(session, template.id, {
-                        "name": name,
-                        "subject": subject,
-                        "body": body,
-                        "is_followup": is_followup,
-                        "days_after_previous": days_after
-                    })
-                    st.success("Template updated!")
-                    st.rerun()
-                
-                if preview_btn:
-                    st.info("Preview with sample data:")
-                    sample_contact = type('obj', (object,), {
-                        'name': 'John Doe',
-                        'company_name': 'TechCorp',
-                        'email': 'john@techcorp.com'
-                    })()
-                    sample_job = type('obj', (object,), {
-                        'job_title': 'Senior Developer',
-                        'company_name': 'TechCorp'
-                    })()
-                    
-                    from src.email_engine import EmailEngine
-                    engine = EmailEngine(session)
-                    subj, body_txt = engine.format_template(template, sample_contact, sample_job)
-                    
-                    st.markdown(f"**Subject:** {subj}")
-                    st.text_area("Body Preview", body_txt, height=200)
-                
-                if delete_btn:
-                    if st.warning("⚠️ Delete this template?"):
-                        delete_template(session, template.id)
-                        st.success("Template deleted!")
-                        st.rerun()
-    
-    # Add new template
-    with st.expander("➕ Create New Template"):
-        with st.form("new_template"):
-            name = st.text_input("Template Name")
-            subject = st.text_input("Subject Line")
-            body = st.text_area("Email Body", height=300)
-            is_followup = st.checkbox("Is Follow-up Template?")
-            days_after = st.number_input("Days After Previous Contact", value=7, min_value=1)
-            
-            if st.form_submit_button("Create Template"):
-                if name and subject and body:
-                    add_email_template(session, name, subject, body, is_followup, days_after)
-                    st.success(f"Template '{name}' created!")
-                    st.rerun()
-                else:
-                    st.error("All fields are required")
-
-def send_single_email_ui(session):
-    """FR-10: Send Single Email UI"""
-    st.subheader("📨 Send Single Email")
-    
-    # Check if email account is configured
-    account = get_active_email_account(session)
-    if not account:
-        st.warning("📧 No email account configured. Please set up your email account first.")
-        if st.button("Go to Email Setup"):
-            st.session_state.page = "Email Setup"
-            st.rerun()
-        return
+    # Smart setup form
+    st.markdown("### 🔧 Configure Email Account")
     
     col1, col2 = st.columns(2)
-    
     with col1:
-        st.markdown("### 👤 Select Contact")
-        contacts = fetch_all_contacts(session)
-        if contacts.empty:
-            st.warning("No contacts found. Add contacts first!")
-            return
-        
-        contact_options = contacts.apply(lambda x: f"{x['name']} - {x['email']} ({x['company_name']})", axis=1).tolist()
-        contact_idx = st.selectbox("Choose Contact", range(len(contact_options)), 
-                                  format_func=lambda x: contact_options[x])
-        selected_contact = contacts.iloc[contact_idx]
-    
+        provider = st.selectbox("📧 Email Provider", list(SMTP_CONFIGS.keys()), key="smtp_provider")
     with col2:
-        st.markdown("### ✉️ Select Template")
-        templates = get_all_templates(session)
-        if not templates:
-            st.warning("No templates found. Create templates first!")
-            return
+        email = st.text_input("✉️ Email Address", placeholder="you@gmail.com", key="setup_email")
+    
+    # Auto-fill SMTP settings based on provider
+    config = SMTP_CONFIGS[provider]
+    smtp_server = st.text_input("🌐 SMTP Server", value=config["server"], key="smtp_server")
+    smtp_port = st.number_input("🔌 SMTP Port", value=config["port"], min_value=1, max_value=65535, key="smtp_port")
+    
+    st.info(f"💡 **{provider} Tip**: {config['help']}")
+    
+    app_password = st.text_input("🔑 App Password", type="password", 
+                                placeholder="16-character App Password" if provider == "Gmail" else "Your email password",
+                                key="app_password")
+    
+    # Validation and actions
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        test_btn = st.button("🧪 Test Connection", use_container_width=True, type="secondary")
+    with col2:
+        save_btn = st.button("💾 Save & Activate", use_container_width=True, type="primary")
+    with col3:
+        st.caption(f"Last tested: {account.updated_at.strftime('%H:%M')}" if account else "Not tested")
+    
+    if test_btn or save_btn:
+        is_valid, errors = validate_email_setup(email, app_password, smtp_server, smtp_port)
         
-        template_names = [t.name for t in templates]
-        template_idx = st.selectbox("Choose Template", range(len(template_names)), 
-                                   format_func=lambda x: template_names[x])
-        selected_template = templates[template_idx]
-    
-    # Preview email
-    st.markdown("---")
-    st.markdown("### 📧 Email Preview")
-    
-    contact_obj = session.query(Contact).get(selected_contact["id"])
-    job = session.query(Job).get(contact_obj.job_id) if contact_obj.job_id else None
-    
-    engine = EmailEngine(session)
-    subject, body = engine.format_template(selected_template, contact_obj, job)
-    
-    st.text_input("To", f"{contact_obj.name} <{contact_obj.email}>", disabled=True)
-    st.text_input("Subject", subject, disabled=True)
-    st.text_area("Body", body, height=300, disabled=True)
-    
-    # Send button
-    st.markdown("---")
-    if st.button("🚀 Send Email", type="primary", use_container_width=True):
-        with st.spinner("Sending email..."):
-            engine = EmailEngine(session)
-            engine.connect_smtp(account.email_address)
-            success, message = engine.send_email(contact_obj, selected_template, job)
-            engine.disconnect_smtp()
+        if not is_valid:
+            for error in errors:
+                st.error(f"❌ {error}")
+        else:
+            with st.spinner("Testing connection..."):
+                success, message = test_smtp_connection(email, app_password, smtp_server, smtp_port)
             
             if success:
-                st.success(message)
-                st.balloons()
-                # Show log entry
-                logs = get_email_logs(session, contact_obj.id, limit=1)
-                if logs:
-                    st.info(f"📧 Logged: {logs[0].sent_at.strftime('%Y-%m-%d %H:%M')}")
+                st.success(f"✅ {message}")
+                if save_btn:
+                    engine = EmailEngine(session)
+                    success, msg = engine.setup_account(email, app_password, smtp_server, smtp_port)
+                    if success:
+                        st.balloons()
+                        st.success("🎉 Account activated! You can now send emails.")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Setup failed: {msg}")
             else:
-                st.error(message)
+                st.error(f"❌ Connection failed: {message}")
+                st.info("💡 Common fixes:\n- For Gmail: Enable 2FA and generate an App Password\n- Check firewall settings\n- Verify SMTP server/port")
+
+# =====================================================
+# TEMPLATE MANAGEMENT WITH SMART PREVIEWS
+# =====================================================
+
+def template_manager_ui(session):
+    """Smart template management with validation and previews"""
+    st.subheader("✉️ Email Templates")
+    
+    # Auto-create defaults if none exist
+    templates = get_all_templates(session)
+    if not templates:
+        with st.spinner("Creating smart default templates..."):
+            # [Template creation code - kept concise]
+            default_templates = [
+                ("Cold Outreach", "Interest in {job_title} at {company}", """Dear {name},\n\nI'm excited about the {job_title} role at {company}. With my experience in [relevant skill], I believe I'd be a strong fit.\n\n[Your value proposition]\n\nBest regards,\n{your_name}""", False, 0),
+                ("Follow-up #1", "Following up: {job_title} at {company}", """Hi {name},\n\nI wanted to follow up on my application for the {job_title} position. I remain very interested in this opportunity at {company}.\n\n[Add specific detail about role/company]\n\nThank you for your time!\n\nBest regards,\n{your_name}""", True, 7),
+                ("Follow-up #2", "Re: {job_title} Opportunity", """Hi {name},\n\nI hope you're having a productive week. I'm still very interested in the {job_title} role and would welcome the chance to discuss how I can contribute to {company}.\n\n[Add new insight or question]\n\nBest regards,\n{your_name}""", True, 7)
+            ]
+            for name, subj, body, is_fu, days in default_templates:
+                add_email_template(session, name, subj, body, is_fu, days)
+            st.success("✅ Smart defaults created! Optimized for response rates.")
+            st.rerun()
+    
+    # Template stats
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Templates", len(templates))
+    col2.metric("Follow-up Templates", sum(1 for t in templates if t.is_followup))
+    col3.metric("Avg. Length", f"{sum(len(t.body) for t in templates)//len(templates)} chars")
+    
+    # Template table with actions
+    if templates:
+        st.markdown("### 📋 Your Templates")
+        for idx, template in enumerate(templates):
+            with st.expander(f"{'🔄' if template.is_followup else '📧'} **{template.name}** | {template.subject[:40]}...", expanded=False):
+                # Template details
+                col1, col2, col3 = st.columns([3, 1, 1])
+                with col1:
+                    st.caption(f"{'Follow-up' if template.is_followup else 'Cold'} • {template.days_after_previous}d delay • Created {template.created_at.strftime('%b %d')}")
+                with col2:
+                    if st.button("👁️ Preview", key=f"preview_{template.id}"):
+                        st.session_state[f"show_preview_{template.id}"] = True
+                with col3:
+                    if st.button("🗑️ Delete", key=f"del_temp_{template.id}"):
+                        st.session_state.confirm_delete = template.id
+                
+                # Preview modal
+                if st.session_state.get(f"show_preview_{template.id}"):
+                    st.markdown("### 📧 Preview with Sample Data")
+                    sample = {
+                        'name': 'Alex Rivera',
+                        'company_name': 'InnovateX',
+                        'job_title': 'Senior Product Manager'
+                    }
+                    engine = EmailEngine(session)
+                    contact_obj = type('obj', (object,), {
+                        'name': sample['name'],
+                        'company_name': sample['company_name'],
+                        'email': 'alex@innovatex.com'
+                    })()
+                    job_obj = type('obj', (object,), {
+                        'job_title': sample['job_title'],
+                        'company_name': sample['company_name']
+                    })()
+                    subj, body = engine.format_template(template, contact_obj, job_obj)
+                    
+                    st.text_input("Subject", subj, disabled=True)
+                    st.text_area("Body", body, height=200, disabled=True)
+                    if st.button("CloseOperation", key=f"close_prev_{template.id}"):
+                        st.session_state[f"show_preview_{template.id}"] = False
+                        st.rerun()
+                
+                # Delete confirmation
+                if st.session_state.get("confirm_delete") == template.id:
+                    st.warning("⚠️ **Confirm deletion?** This cannot be undone.")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Yes, Delete", key=f"confirm_del_{template.id}"):
+                            delete_template(session, template.id)
+                            st.success(f"Deleted '{template.name}'")
+                            del st.session_state.confirm_delete
+                            st.rerun()
+                    with col2:
+                        if st.button("❌ Cancel", key=f"cancel_del_{template.id}"):
+                            del st.session_state.confirm_delete
+                            st.rerun()
+    
+    # Create new template
+    with st.expander("➕ Create New Template", expanded=False):
+        with st.form("new_template", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                name = st.text_input("Template Name*", placeholder="e.g., 'Networking Follow-up'")
+                subject = st.text_input("Subject Line*", placeholder="Re: {job_title} at {company}")
+                is_followup = st.checkbox("🔄 This is a follow-up template")
+            with col2:
+                days_after = st.number_input("Days After Previous Contact", 
+                                            value=7 if is_followup else 0, 
+                                            min_value=0,
+                                            disabled=not is_followup)
+                priority = st.select_slider("Priority", 
+                                          options=["Low", "Medium", "High"],
+                                          value="Medium")
+            
+            body = st.text_area("Email Body*", 
+                               placeholder="Dear {name},\n\nI'm writing about...",
+                               height=200,
+                               help="Use variables: {name}, {company}, {job_title}, {first_name}, {your_name}, {today}")
+            
+            # Smart validation
+            submitted = st.form_submit_button("✅ Create Template", type="primary", use_container_width=True)
+            if submitted:
+                if not name.strip() or not subject.strip() or not body.strip():
+                    st.error("❌ All fields marked with * are required")
+                elif len(body) < 50:
+                    st.warning("⚠️ Email body is very short. Consider adding more personalization.")
+                    if st.button("✅ Create Anyway"):
+                        add_email_template(session, name, subject, body, is_followup, days_after)
+                        st.success(f"✅ Template '{name}' created!")
+                        st.rerun()
+                else:
+                    add_email_template(session, name, subject, body, is_followup, days_after)
+                    st.success(f"✅ Template '{name}' created!")
+                    st.balloons()
+                    st.rerun()
+
+# =====================================================
+# SMART BULK SEND (Handles Single + Bulk)
+# =====================================================
 
 def send_bulk_email_ui(session):
-    """FR-11: Bulk Email Send UI"""
-    st.subheader("📤 Bulk Email Campaign")
+    """Unified smart send interface with validation and progress tracking"""
+    st.subheader("🚀 Smart Email Campaign")
     
+    # Prerequisites check
     account = get_active_email_account(session)
-    if not account:
-        st.warning("📧 No email account configured.")
-        return
-    
-    # Select contacts
-    st.markdown("### 👥 Select Contacts")
     contacts_df = fetch_all_contacts(session)
-    if contacts_df.empty:
-        st.warning("No contacts available.")
-        return
+    templates = get_all_templates(session)
     
-    # Multi-select contacts
+    # Rule-based guidance
+    if not account:
+        st.error("❌ **Email account not configured**")
+        st.info("💡 Go to SETUP tab to configure your email account first")
+        st.stop()
+    
+    if contacts_df.empty:
+        st.warning("📭 **No contacts available**")
+        st.info("💡 Add contacts first in CONTACTS section or import from CSV")
+        if st.button("➕ Add Contact Now"):
+            st.session_state.page = "CONTACTS"
+            st.rerun()
+        st.stop()
+    
+    if not templates:
+        st.error("❌ **No email templates available**")
+        st.info("💡 Create templates in TEMPLATES tab first")
+        if st.button("➕ Create Template Now"):
+            st.session_state.page = "OUTREACH"
+            st.session_state.outreach_subpage = "TEMPLATES"
+            st.rerun()
+        st.stop()
+    
+    # Smart contact selection
+    st.markdown("### 👥 Select Recipients")
+    
+    # Auto-suggest candidates
+    engine = EmailEngine(session)
+    candidates = engine.get_followup_candidates(days_threshold=7)
+    if candidates:
+        st.success(f"🤖 **Smart Suggestion**: {len(candidates)} contacts need follow-up (last contacted 7+ days ago)")
+        default_ids = [c.id for c in candidates[:10]]  # Auto-select top 10
+    else:
+        st.info("💡 No automatic suggestions. Select contacts manually below.")
+        default_ids = []
+    
+    # Contact selector with search
     contact_options = contacts_df.apply(
-        lambda x: f"{x['name']} - {x['email']} ({x['company_name']})", 
+        lambda x: f"{x['name']} • {x['company_name']} • {x['email']}", 
         axis=1
     ).tolist()
     
     selected_indices = st.multiselect(
-        "Choose contacts (max 20)",
-        range(min(20, len(contact_options))),
-        format_func=lambda x: contact_options[x]
+        "Search and select contacts",
+        options=range(len(contact_options)),
+        default=[i for i, cid in enumerate(contacts_df['id']) if cid in default_ids],
+        format_func=lambda x: contact_options[x],
+        placeholder="Type to search contacts..."
     )
     
-    if len(selected_indices) > 20:
-        st.error("Maximum 20 contacts per bulk send")
-        selected_indices = selected_indices[:20]
+    selected_contacts = contacts_df.iloc[selected_indices].to_dict('records') if selected_indices else []
     
-    st.caption(f"Selected: {len(selected_indices)} contacts")
-    
-    # Select template
+    # Template selection with smart suggestion
     st.markdown("### ✉️ Select Template")
-    templates = get_all_templates(session)
-    if not templates:
-        st.warning("No templates found.")
-        return
-    
-    template_names = [t.name for t in templates]
-    template_idx = st.selectbox("Template", range(len(template_names)), 
-                               format_func=lambda x: template_names[x])
-    selected_template = templates[template_idx]
-    
-    # Campaign settings
-    st.markdown("### ⚙️ Campaign Settings")
     col1, col2 = st.columns(2)
+    
     with col1:
-        rate_limit = st.slider("Seconds between emails", 5, 60, 10)
+        template_names = [f"{'🔄 ' if t.is_followup else '📧 '} {t.name}" for t in templates]
+        selected_idx = st.selectbox(
+            "Template",
+            range(len(templates)),
+            format_func=lambda x: template_names[x],
+            index=0 if not candidates else 1  # Default to follow-up if candidates exist
+        )
+        selected_template = templates[selected_idx]
+    
     with col2:
-        daily_limit = st.number_input("Daily send limit", 10, 100, 50)
+        st.caption("💡 **Smart Tip**")
+        if candidates and selected_template.is_followup:
+            st.success("✅ Perfect! Follow-up template selected for stale contacts")
+        elif not candidates and not selected_template.is_followup:
+            st.info("✅ Good choice for new outreach")
+        elif candidates and not selected_template.is_followup:
+            st.warning("⚠️ Consider using a follow-up template for these contacts")
+        elif not candidates and selected_template.is_followup:
+            st.warning("⚠️ This is a follow-up template. Use for existing contacts only")
     
-    st.info(f"""
-    **Campaign Summary:**
-    - Recipients: {len(selected_indices)}
-    - Template: {selected_template.name}
-    - Rate limit: {rate_limit}s between emails
-    - Estimated time: {len(selected_indices) * rate_limit // 60} minutes
-    """)
-    
-    # Send button with confirmation
-    if st.button("🚀 Start Campaign", type="primary"):
-        if not selected_indices:
-            st.error("Please select at least one contact")
-        else:
-            if st.checkbox("⚠️ I confirm I want to send to all selected contacts"):
-                contact_ids = contacts_df.iloc[selected_indices]["id"].tolist()
-                
-                with st.spinner("Sending campaign..."):
-                    engine = EmailEngine(session)
-                    engine.rate_limit_delay = rate_limit
-                    engine.daily_limit = daily_limit
-                    
-                    success, result = engine.send_bulk_emails(contact_ids, selected_template.id)
-                    
-                    if success:
-                        st.success("Campaign completed!")
-                        st.code(result)
-                    else:
-                        st.error(result)
-
-def followup_dashboard_ui(session):
-    """FR-14 & FR-15: Follow-up Dashboard"""
-    st.subheader("🔄 Follow-up Dashboard")
-    
-    # Get follow-up candidates (FR-13)
-    candidates = get_followup_candidates(session, days_threshold=7)
-    
-    if not candidates:
-        st.success("✅ No contacts need follow-up right now!")
-        st.caption("Contacts will appear here when it's been 7+ days since last contact")
-    else:
-        st.warning(f"⚠️ {len(candidates)} contacts need follow-up")
-        
-        # Filter options
-        col1, col2 = st.columns(2)
-        with col1:
-            show_all = st.checkbox("Show all contacts", value=True)
-        with col2:
-            sort_by = st.selectbox("Sort by", ["Days since contact", "Company", "Name"])
-        
-        # Display candidates
-        for contact in candidates:
-            days_since = (datetime.now(timezone.utc) - contact.last_contacted).days
-            
-            with st.container():
-                col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
-                
-                with col1:
-                    st.markdown(f"**{contact.name}**")
-                    st.caption(f"{contact.email}")
-                
-                with col2:
-                    st.caption(contact.company_name)
-                    if contact.job_id:
-                        job = session.query(Job).get(contact.job_id)
-                        if job:
-                            st.caption(f"📎 {job.job_title}")
-                
-                with col3:
-                    st.warning(f"⏳ {days_since} days ago")
-                
-                with col4:
-                    if st.button("📨 Send", key=f"followup_{contact.id}"):
-                        # Auto-select follow-up template
-                        templates = get_all_templates(session)
-                        followup_templates = [t for t in templates if t.is_followup]
-                        
-                        if not followup_templates:
-                            st.error("No follow-up template found. Create one first!")
-                        else:
-                            template = followup_templates[0]  # Use first follow-up template
-                            
-                            account = get_active_email_account(session)
-                            if not account:
-                                st.error("Email account not configured")
-                            else:
-                                with st.spinner("Sending..."):
-                                    engine = EmailEngine(session)
-                                    engine.connect_smtp(account.email_address)
-                                    success, message = engine.send_email(contact, template, 
-                                                                        session.query(Job).get(contact.job_id) if contact.job_id else None)
-                                    engine.disconnect_smtp()
-                                    
-                                    if success:
-                                        st.success("✅ Sent!")
-                                        st.rerun()
-                                    else:
-                                        st.error(message)
-                
-                st.divider()
-        
-        st.info(f"💡 **Tip**: Configure a follow-up template with variables like {{name}}, {{company}} for personalized emails")
-
-def import_export_ui(session):
-    """FR-18 & FR-19: CSV Import/Export UI"""
-    st.subheader("📥 Import / Export Data")
-    
-    tab1, tab2, tab3 = st.tabs(["Import Contacts", "Import Jobs", "Export Data"])
-    
-    with tab1:
-        st.markdown("### Import Contacts from CSV")
-        st.info("CSV must have columns: `name`, `email`, `company_name`")
-        st.caption("Optional columns: `contact_type`, `phone`, `linkedin_url`")
-        
-        uploaded_file = st.file_uploader("Choose CSV file", type=["csv"], key="contacts_csv")
-        
-        if uploaded_file:
-            df = pd.read_csv(uploaded_file)
-            st.write("Preview:")
-            st.dataframe(df.head())
-            
-            if st.button("📤 Import Contacts"):
-                with st.spinner("Importing..."):
-                    success_count, errors = import_contacts_csv(session, df)
-                    
-                    if errors:
-                        st.warning(f"Imported {success_count}, Errors: {len(errors)}")
-                        with st.expander("View Errors"):
-                            for err in errors[:10]:
-                                st.text(err)
-                    else:
-                        st.success(f"✅ Successfully imported {success_count} contacts!")
-                        st.balloons()
-    
-    with tab2:
-        st.markdown("### Import Jobs from CSV")
-        st.info("CSV must have columns: `company_name`, `job_title`, `date_applied`")
-        st.caption("Date format: YYYY-MM-DD")
-        
-        uploaded_file = st.file_uploader("Choose CSV file", type=["csv"], key="jobs_csv")
-        
-        if uploaded_file:
-            df = pd.read_csv(uploaded_file)
-            st.write("Preview:")
-            st.dataframe(df.head())
-            
-            if st.button("📤 Import Jobs"):
-                with st.spinner("Importing..."):
-                    success_count, errors = import_jobs_csv(session, df)
-                    
-                    if errors:
-                        st.warning(f"Imported {success_count}, Errors: {len(errors)}")
-                        with st.expander("View Errors"):
-                            for err in errors[:10]:
-                                st.text(err)
-                    else:
-                        st.success(f"✅ Successfully imported {success_count} jobs!")
-                        st.balloons()
-    
-    with tab3:
-        st.markdown("### Export Data")
-        
-        export_type = st.selectbox("Export", ["All Contacts", "All Jobs", "Email Logs"])
-        
-        if st.button("📥 Download CSV"):
-            if export_type == "All Contacts":
-                df = fetch_all_contacts(session)
-            elif export_type == "All Jobs":
-                from src.database import fetch_all_jobs
-                df = fetch_all_jobs(session)
-            else:
-                logs = get_email_logs(session, limit=1000)
-                df = pd.DataFrame([{
-                    "contact_id": l.contact_id,
-                    "subject": l.subject,
-                    "sent_at": l.sent_at,
-                    "status": l.status
-                } for l in logs])
-            
-            csv = df.to_csv(index=False)
-            st.download_button(
-                label="💾 Download CSV",
-                data=csv,
-                file_name=f"{export_type.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
-            
-def smart_dashboard_ui(session):
-    """Phase 3: Action-focused dashboard showing ONLY what matters today"""
-    st.subheader("🎯 Today's Action Plan")
-    
-    engine = EmailEngine(session)
-    items = engine.get_actionable_items()
-    
-    # ✅ SECTION 1: FOLLOW-UPS DUE TODAY (Highest priority)
-    if items["due_today"]:
-        st.error(f"⏰ {len(items['due_today'])} FOLLOW-UPS DUE TODAY")
-        for contact in items["due_today"]:
-            job = session.query(Job).get(contact.job_id) if contact.job_id else None
-            
-            with st.container(border=True):
-                col1, col2, col3 = st.columns([3, 3, 2])
-                
-                with col1:
-                    st.markdown(f"**{contact.name}**")
-                    st.caption(f"{contact.company_name}")
-                    if job:
-                        st.caption(f"📎 {job.job_title}")
-                
-                with col2:
-                    st.markdown(f"📧 Last contacted: {(datetime.now(timezone.utc) - contact.last_contacted).days} days ago")
-                    templates = get_all_templates(session)
-                    followup_templates = [t for t in templates if t.is_followup]
-                    if followup_templates:
-                        template = followup_templates[0]
-                        preview_subject, _ = engine.format_template(template, contact, job)
-                        st.caption(f"✏️ Preview: {preview_subject}")
-                
-                with col3:
-                    # ONE-CLICK FOLLOW-UP + CALENDAR
-                    if st.button("📨 Send & Schedule", key=f"today_{contact.id}", type="primary"):
-                        account = get_active_email_account(session)
-                        if account and followup_templates:
-                            engine.connect_smtp(account.email_address)
-                            success, msg, event = engine.send_email(contact, followup_templates[0], job)
-                            engine.disconnect_smtp()
-                            
-                            if success:
-                                st.success("✅ Sent!")
-                                # Auto-download calendar event
-                                st.session_state.download_event = event
-                                st.rerun()
-                        else:
-                            st.error("Configure email account or templates first")
-        
-        st.markdown("---")
-    
-    # ✅ SECTION 2: RECENT REPLIES (Celebrate wins)
-    if items["recent_replies"]:
-        st.success(f"🎉 {len(items['recent_replies'])} Recent Replies")
-        for contact in items["recent_replies"][:3]:  # Show top 3
-            days_ago = (datetime.now(timezone.utc) - contact.reply_date).days
-            st.markdown(f"✅ **{contact.name}** ({contact.company_name}) replied {days_ago} days ago")
-        if len(items["recent_replies"]) > 3:
-            st.caption(f"... and {len(items['recent_replies']) - 3} more")
-        st.markdown("---")
-    
-    # ✅ SECTION 3: STALE CONTACTS (Nudge to action)
-    if items["stale"]:
-        st.warning(f"⚠️ {len(items['stale'])} Stale Contacts (>14 days)")
-        for contact in items["stale"][:3]:
-            days = (datetime.now(timezone.utc) - contact.last_contacted).days
-            st.markdown(f"⏳ **{contact.name}** - {days} days since last contact")
-        st.markdown("---")
-    
-    # ✅ CALENDAR DOWNLOAD TRIGGER (from send action)
-    if "download_event" in st.session_state and st.session_state.download_event:
-        st.balloons()
-        calendar_download_button(st.session_state.download_event, "✅ Download Calendar Reminder")
-        del st.session_state.download_event
-    
-    # ✅ QUICK ADD SECTION
-    st.subheader("⚡ Quick Actions")
+    # Campaign settings with safety limits
+    st.markdown("### ⚙️ Campaign Settings")
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("➕ Add Job", use_container_width=True):
-            st.session_state.show_add_job = True
-            st.rerun()
+        rate_limit = st.slider(
+            "⏱️ Seconds between emails", 
+            min_value=5, 
+            max_value=60, 
+            value=15,
+            help="Prevents spam flags. Gmail recommends 10-15s between emails"
+        )
     
     with col2:
-        if st.button("👤 Add Contact", use_container_width=True):
-            st.session_state.show_add_contact = True
-            st.rerun()
+        daily_cap = st.number_input(
+            "📧 Daily send limit", 
+            min_value=10, 
+            max_value=100, 
+            value=min(50, len(selected_contacts)),
+            help="Stay under Gmail's 100/day limit for new accounts"
+        )
     
     with col3:
-        if st.button("📧 Send Bulk", use_container_width=True):
-            st.session_state.show_bulk_send = True
-            st.rerun()
+        st.metric("Total Recipients", len(selected_contacts))
+        if len(selected_contacts) > daily_cap:
+            st.warning(f"⚠️ Exceeds daily limit! Only first {daily_cap} will send")
+    
+    # Validation before sending
+    is_valid, errors = validate_campaign(selected_contacts, selected_template, account)
+    if not is_valid:
+        for error in errors:
+            st.error(error)
+        st.stop()
+    
+    # Campaign summary
+    st.markdown("### 📊 Campaign Summary")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Recipients", len(selected_contacts))
+    col2.metric("Template", selected_template.name)
+    col3.metric("Rate Limit", f"{rate_limit}s")
+    col4.metric("Est. Duration", f"{len(selected_contacts) * rate_limit // 60} min")
+    
+    # Send button with confirmation
+    st.markdown("")
+    if st.button("🚀 LAUNCH CAMPAIGN", type="primary", use_container_width=True, key="launch_campaign"):
+        if len(selected_contacts) > 20:
+            st.warning(f"⚠️ **Large campaign detected** ({len(selected_contacts)} emails)")
+            st.info("💡 Pro tip: For best deliverability, send campaigns in batches of 20")
+            if not st.checkbox("✅ I understand the risks and want to proceed"):
+                st.stop()
+        
+        # Progress tracking
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        results_container = st.empty()
+        
+        results = {"sent": 0, "failed": 0, "errors": []}
+        contact_ids = [c['id'] for c in selected_contacts[:daily_cap]]  # Respect daily cap
+        
+        # Initialize email engine
+        engine = EmailEngine(session)
+        engine.rate_limit_delay = rate_limit
+        engine.daily_limit = daily_cap
+        
+        # Send emails with progress updates
+        for i, contact_id in enumerate(contact_ids):
+            progress = (i + 1) / len(contact_ids)
+            progress_bar.progress(progress)
+            
+            contact = session.query(Contact).get(contact_id)
+            job = session.query(Job).get(contact.job_id) if contact.job_id else None
+            
+            status_text.text(f"📤 Sending to {contact.name} ({i+1}/{len(contact_ids)})...")
+            
+            success, message, _ = engine.send_email(contact, selected_template, job)
+            
+            if success:
+                results["sent"] += 1
+                # Update contact status
+                contact.needs_followup = False
+                if selected_template.is_followup and selected_template.days_after_previous:
+                    contact.followup_date = datetime.now(timezone.utc).date() + timedelta(days=selected_template.days_after_previous)
+                session.commit()
+            else:
+                results["failed"] += 1
+                results["errors"].append(f"{contact.name} ({contact.email}): {message}")
+            
+            # Rate limiting
+            if i < len(contact_ids) - 1:
+                time.sleep(rate_limit / 10)  # Small sleep for progress smoothness
+        
+        # Finalize
+        progress_bar.progress(1.0)
+        status_text.text("✅ Campaign completed!")
+        
+        # Results display
+        with results_container.container():
+            st.success(f"✅ **Campaign Complete!** Sent: {results['sent']} | Failed: {results['failed']}")
+            
+            if results["errors"]:
+                with st.expander(f"⚠️ {len(results['errors'])} Failed Emails"):
+                    for error in results["errors"][:10]:  # Show first 10
+                        st.text(error)
+                    if len(results["errors"]) > 10:
+                        st.caption(f"... and {len(results['errors']) - 10} more")
+            
+            # Success actions
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("📧 View Email Logs", use_container_width=True):
+                    st.session_state.page = "ANALYTICS"
+                    st.rerun()
+            with col2:
+                if st.button("🔄 New Campaign", use_container_width=True):
+                    st.rerun()
+            with col3:
+                st.download_button(
+                    "📥 Export Report",
+                    data=f"Campaign Report\nSent: {results['sent']}\nFailed: {results['failed']}\n\nErrors:\n" + "\n".join(results["errors"]),
+                    file_name=f"campaign_report_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                    use_container_width=True
+                )
+        
+        # Auto-close SMTP
+        engine.disconnect_smtp()
+
+# =====================================================
+# IMPORT/EXPORT WITH VALIDATION
+# =====================================================
+
+def import_export_ui(session):
+    """Smart import/export with validation and templates"""
+    st.subheader("📥 Import / Export Data")
+    
+    tab1, tab2, tab3 = st.tabs(["📤 Import Contacts", "📤 Import Jobs", "📥 Export Data"])
+    
+    with tab1:
+        st.markdown("### Import Contacts from CSV")
+        st.info("✅ **Required columns**: `name`, `email`, `company_name`")
+        st.caption("	Optional: `contact_type`, `phone`, `linkedin_url`")
+        
+        # Sample CSV download
+        sample_df = pd.DataFrame({
+            "name": ["John Doe", "Jane Smith"],
+            "email": ["john@company.com", "jane@startup.io"],
+            "company_name": ["TechCorp", "InnovateX"],
+            "contact_type": ["Recruiter", "Hiring Manager"],
+            "phone": ["+1234567890", ""],
+            "linkedin_url": ["https://linkedin.com/in/johndoe", ""]
+        })
+        
+        st.download_button(
+            "📥 Download Sample CSV Template",
+            sample_df.to_csv(index=False),
+            file_name="contacts_template.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+        
+        uploaded_file = st.file_uploader("Upload CSV file", type=["csv"], key="contacts_csv_upload")
+        
+        if uploaded_file:
+            try:
+                df = pd.read_csv(uploaded_file)
+                st.write(f"Preview ({len(df)} rows):")
+                st.dataframe(df.head(), use_container_width=True)
+                
+                # Validation
+                required_cols = ["name", "email", "company_name"]
+                missing_cols = [col for col in required_cols if col not in df.columns]
+                
+                if missing_cols:
+                    st.error(f"❌ Missing required columns: {', '.join(missing_cols)}")
+                    st.stop()
+                
+                if df['email'].isnull().any() or (df['email'] == '').any():
+                    st.warning("⚠️ Some emails are missing. These rows will be skipped.")
+                
+                if st.button("✅ Import Contacts", type="primary", use_container_width=True):
+                    with st.spinner(f"Importing {len(df)} contacts..."):
+                        success_count, errors = import_contacts_csv(session, df)
+                    
+                    if errors:
+                        st.warning(f"✅ Imported {success_count} contacts | ⚠️ {len(errors)} errors")
+                        with st.expander("View Errors"):
+                            for err in errors[:10]:
+                                st.text(err)
+                            if len(errors) > 10:
+                                st.caption(f"... and {len(errors)-10} more")
+                    else:
+                        st.success(f"✅ Successfully imported {success_count} contacts!")
+                        st.balloons()
+            except Exception as e:
+                st.error(f"❌ Error reading CSV: {str(e)}")
+                st.info("💡 Tip: Open CSV in Excel/Sheets and re-save as UTF-8 CSV")
+    
+    with tab2:
+        # Similar structure for jobs import (concise)
+        st.markdown("### Import Jobs from CSV")
+        st.info("✅ **Required columns**: `company_name`, `job_title`, `date_applied` (YYYY-MM-DD)")
+        st.caption("	Optional: `status`, `priority`, `job_link`, `notes`")
+        
+        sample_jobs = pd.DataFrame({
+            "company_name": ["Google", "Microsoft"],
+            "job_title": ["Senior Engineer", "Product Manager"],
+            "date_applied": ["2024-01-15", "2024-02-01"],
+            "status": ["Applied", "Interview Scheduled"],
+            "priority": ["High", "Medium"]
+        })
+        
+        st.download_button(
+            "📥 Download Sample Jobs CSV",
+            sample_jobs.to_csv(index=False),
+            file_name="jobs_template.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+        
+        uploaded_file = st.file_uploader("Upload CSV file", type=["csv"], key="jobs_csv_upload")
+        
+        if uploaded_file:
+            try:
+                df = pd.read_csv(uploaded_file)
+                st.dataframe(df.head(), use_container_width=True)
+                
+                required_cols = ["company_name", "job_title", "date_applied"]
+                missing_cols = [col for col in required_cols if col not in df.columns]
+                if missing_cols:
+                    st.error(f"❌ Missing columns: {', '.join(missing_cols)}")
+                elif st.button("✅ Import Jobs", type="primary", use_container_width=True):
+                    with st.spinner(f"Importing {len(df)} jobs..."):
+                        success_count, errors = import_jobs_csv(session, df)
+                    if errors:
+                        st.warning(f"✅ Imported {success_count} | ⚠️ {len(errors)} errors")
+                    else:
+                        st.success(f"✅ Imported {success_count} jobs!")
+                        st.balloons()
+            except Exception as e:
+                st.error(f"❌ CSV error: {str(e)}")
+    
+    with tab3:
+        st.markdown("### Export Your Data")
+        st.info("💡 All exports include full data with timestamps")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("📧 Export Contacts", use_container_width=True):
+                df = fetch_all_contacts(session)
+                st.download_button(
+                    "📥 Download CSV",
+                    df.to_csv(index=False),
+                    file_name=f"contacts_export_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+        
+        with col2:
+            if st.button("💼 Export Jobs", use_container_width=True):
+                from src.database import fetch_all_jobs
+                df = fetch_all_jobs(session)
+                st.download_button(
+                    "📥 Download CSV",
+                    df.to_csv(index=False),
+                    file_name=f"jobs_export_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+        
+        with col3:
+            if st.button("📨 Export Email Logs", use_container_width=True):
+                logs = get_email_logs(session, limit=10000)
+                df = pd.DataFrame([{
+                    "sent_at": l.sent_at,
+                    "contact": session.query(Contact).get(l.contact_id).name if l.contact_id else "Unknown",
+                    "subject": l.subject,
+                    "status": l.status,
+                    "error": l.error_message or ""
+                } for l in logs])
+                st.download_button(
+                    "📥 Download CSV",
+                    df.to_csv(index=False),
+                    file_name=f"email_logs_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
