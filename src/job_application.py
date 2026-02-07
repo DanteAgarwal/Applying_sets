@@ -113,11 +113,11 @@ def render_job_card(job, session):
                 st.caption(job["notes"][:100] + "..." if len(job["notes"]) > 100 else job["notes"])
 
         with right:
-            if st.button("✏️", key=f"edit_{job['id']}", use_container_width=True):
+            if st.button("✏️", key=f"edit_{job['id']}", width='stretch'):
                 st.session_state[EDIT_ID] = job["id"]
                 st.rerun()
 
-            if st.button("🗑️", key=f"del_{job['id']}", use_container_width=True):
+            if st.button("🗑️", key=f"del_{job['id']}", width='stretch'):
                 delete_job_application(session, job["id"])
                 st.rerun()
 
@@ -163,7 +163,7 @@ def render_edit_panel(session, jobs_df):
 
         col1, col2 = st.columns(2)
         with col1:
-            if st.form_submit_button("✓ Update", use_container_width=True):
+            if st.form_submit_button("✓ Update", width='stretch'):
                 update_job_application(session, job_id, {
                     "status": status,
                     "priority": priority,
@@ -174,7 +174,7 @@ def render_edit_panel(session, jobs_df):
                 st.success("✓ Updated")
                 st.rerun()
         with col2:
-            if st.form_submit_button("✗ Cancel", use_container_width=True):
+            if st.form_submit_button("✗ Cancel", width='stretch'):
                 st.session_state[EDIT_ID] = None
                 st.rerun()
 
@@ -469,7 +469,7 @@ def render_kanban(session, df):
                 # Action buttons - context-aware
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.button("✏️ Edit", key=f"kedit_{job['id']}", use_container_width=True):
+                    if st.button("✏️ Edit", key=f"kedit_{job['id']}", width='stretch'):
                         st.session_state[EDIT_ID] = job["id"]
                         st.rerun()
                 
@@ -478,11 +478,11 @@ def render_kanban(session, df):
                     next_statuses = STATUS_FLOW.get(status, [])
                     if next_statuses:
                         next_status = next_statuses[0]  # Primary next step
-                        if st.button(f"→ {next_status.split()[0]}", key=f"move_{job['id']}_{next_status}", use_container_width=True):
+                        if st.button(f"→ {next_status.split()[0]}", key=f"move_{job['id']}_{next_status}", width='stretch'):
                             update_job_application(session, job["id"], {"status": next_status})
                             st.rerun()
                     else:
-                        if st.button("🗑️ Delete", key=f"kdel_{job['id']}", use_container_width=True):
+                        if st.button("🗑️ Delete", key=f"kdel_{job['id']}", width='stretch'):
                             delete_job_application(session, job["id"])
                             st.rerun()
                 

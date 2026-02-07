@@ -1,6 +1,4 @@
-"""
-Fixed model.py - Phase 3 ready with proper SQLAlchemy conventions
-"""
+
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Text, Date, DateTime, ForeignKey, Boolean, Enum as SqlEnum
 from sqlalchemy.ext.declarative import declarative_base
@@ -10,7 +8,7 @@ Base = declarative_base()
 
 # ========== JOB MODEL ==========
 class Job(Base):
-    __tablename__ = "jobs"  # ✅ CORRECT: double underscores
+    __tablename__ = "jobs"  # ✅ DOUBLE UNDERSCORES (critical fix)
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     date_applied = Column(Date, nullable=False)

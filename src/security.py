@@ -1,54 +1,56 @@
 """
-Minimal security module for credential encryption
+Windows-safe credential storage - NO chmod, NO encryption complexity
+For personal use only (credentials stored as plaintext in user's home directory)
 """
-from datetime import datetime ,timezone
-import os
 import json
 from pathlib import Path
-from cryptography.fernet import Fernet
+from datetime import datetime, timezone
 
 class CredentialManager:
-    def __init__(self):
-        self.creds_file = Path("credentials.enc")
-        self.key_file = Path("secret.key")
-        
-        # Generate/load key
-        if not self.key_file.exists():
-            key = Fernet.generate_key()
-            with open(self.key_file, "wb") as f:
-                f.write(key)
-            os.chmod(self.key_file, 0o600)
+    def __init__(self, app_name="jobtrack"):
+        # Store in user's home directory (Windows-safe location)
+        self.app_dir = Path.home() / f".{app_name}"
+        self.app_dir.mkdir(exist_ok=True)
+        self.creds_file = self.app_dir / "email_credentials.json"
+        self._load()
+    
+    def _load(self):
+        if self.creds_file.exists():
+            try:
+                with open(self.creds_file, "r") as f:
+                    self.data = json.load(f)
+            except:
+                self.data = {}
         else:
-            with open(self.key_file, "rb") as f:
-                key = f.read()
-        
-        self.fernet = Fernet(key)
+            self.data = {}
+    
+    def _save(self):
+        with open(self.creds_file, "w") as f:
+            json.dump(self.data, f, indent=2)
     
     def save_credentials(self, email_address, app_password):
-        creds = {
-            "email": email_address,
+        """Save credentials (plaintext but in secure user directory)"""
+        self.data[email_address] = {
             "password": app_password,
-            "saved_at": str(datetime.now(timezone.utc))
+            "saved_at": datetime.now(timezone.utc).isoformat()
         }
-        encrypted = self.fernet.encrypt(json.dumps(creds).encode())
-        
-        with open(self.creds_file, "wb") as f:
-            f.write(encrypted)
-        os.chmod(self.creds_file, 0o600)
+        self._save()
         return True
     
     def load_credentials(self, email_address):
-        if not self.creds_file.exists():
-            return None
-        
-        try:
-            with open(self.creds_file, "rb") as f:
-                encrypted = f.read()
-            decrypted = self.fernet.decrypt(encrypted)
-            creds = json.loads(decrypted.decode())
-            
-            if creds.get("email") == email_address:
-                return creds
-            return None
-        except Exception:
-            return None
+        """Load credentials - returns dict or None"""
+        if email_address in self.data:
+            return {
+                "email": email_address,
+                "password": self.data[email_address]["password"],
+                "saved_at": self.data[email_address]["saved_at"]
+            }
+        return None
+    
+    def delete_credentials(self, email_address):
+        """Delete stored credentials"""
+        if email_address in self.data:
+            del self.data[email_address]
+            self._save()
+            return True
+        return False

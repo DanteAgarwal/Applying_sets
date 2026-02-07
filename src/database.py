@@ -13,11 +13,8 @@ from src.model import Base, Job, Contact, EmailTemplate, EmailLog, EmailAccount
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ✅ CREATE ENGINE HERE (best practice)
 engine = create_engine("sqlite:///job_tracker.db", echo=False)
-
-# Create all tables
-Base.metadata.create_all(engine)
+Base.metadata.create_all(engine) 
 
 # Create session factory
 Session = sessionmaker(bind=engine)
@@ -82,97 +79,6 @@ def delete_job_application(session, application_id):
         logger.exception("Database error while deleting job application")
         st.error(f"Database error: {e}")
         session.rollback()
-
-# ========== CONTACT CRUD (Phase 3) ==========
-def add_contact(session, data):
-    try:
-        contact = Contact(
-            name=data["name"],
-            email=data["email"],
-            company_name=data["company_name"],
-            job_id=data.get("job_id"),
-            contact_type=data.get("contact_type", "Other"),
-            phone=data.get("phone"),
-            linkedin_url=data.get("linkedin_url")
-        )
-        session.add(contact)
-        session.commit()
-        logger.info(f"Contact {data['name']} added successfully")
-        return contact.id
-    except Exception as e:
-        logger.exception("Error adding contact")
-        st.error(f"Error adding contact: {e}")
-        session.rollback()
-        raise
-
-def fetch_all_contacts(session):
-    try:
-        return pd.read_sql(session.query(Contact).statement, session.bind)
-    except Exception as e:
-        logger.exception("Error fetching contacts")
-        st.error(f"Database error: {e}")
-        return pd.DataFrame()
-
-def update_contact(session, contact_id, data):
-    try:
-        contact = session.query(Contact).get(contact_id)
-        if not contact:
-            raise ValueError(f"Contact {contact_id} not found")
-        
-        for key, value in data.items():
-            if hasattr(contact, key):
-                setattr(contact, key, value)
-        
-        session.commit()
-        logger.info(f"Contact {contact_id} updated")
-    except Exception as e:
-        logger.exception("Error updating contact")
-        st.error(f"Error updating contact: {e}")
-        session.rollback()
-        raise
-
-def delete_contact(session, contact_id):
-    try:
-        contact = session.query(Contact).get(contact_id)
-        if contact:
-            session.delete(contact)
-            session.commit()
-            logger.info(f"Contact {contact_id} deleted")
-    except Exception as e:
-        logger.exception("Error deleting contact")
-        st.error(f"Error deleting contact: {e}")
-        session.rollback()
-        raise
-
-# ========== EMAIL TEMPLATE CRUD (Phase 3) ==========
-def add_email_template(session, name, subject, body, is_followup=False, days_after_previous=7):
-    try:
-        template = EmailTemplate(
-            name=name,
-            subject=subject,
-            body=body,
-            is_followup=is_followup,
-            days_after_previous=days_after_previous
-        )
-        session.add(template)
-        session.commit()
-        logger.info(f"Template '{name}' added")
-        return template.id
-    except Exception as e:
-        logger.exception("Error adding template")
-        st.error(f"Error adding template: {e}")
-        session.rollback()
-        raise
-
-def get_all_templates(session):
-    return session.query(EmailTemplate).all()
-
-def get_template_by_id(session, template_id):
-    return session.query(EmailTemplate).get(template_id)
-
-# ========== ADD THESE FUNCTIONS TO YOUR EXISTING database.py ==========
-
-from src.model import Contact, EmailTemplate, EmailLog, EmailAccount
 
 # ========== CONTACT CRUD ==========
 def add_contact(session, data):
