@@ -1,7 +1,14 @@
 # Ignore local database files
-*.db
+job_tracker.db
 
 # Ignore virtual environment folder
-venv/
+.venv/
+# Ignore compiled Python files
+__pycache__/
+*.pyc
+# Ignore log files
+*.log
+# Ignore IDE specific files
+.devcontainer/
+.github/
 
-test.py

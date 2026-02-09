@@ -1,10 +1,10 @@
-# 📊 Applying Sets — V1.0
+# 📊 Applying Sets — V2.0
 
-🚀 **From Chaos to Control — Smarter, Sharper, Streamlined**
+🚀 **Outreach. Engage. Track. Win. — Your Job Hunt Command Center**
 
-Welcome to V1.0 of the Job Application Tracker — a major step up from the scrappy V0 that barely held itself together (no offense, past me 😅). Originally cobbled together with trial, error, and a generous amount of AI help, this project has evolved into a structured, usable, and expandable personal assistant for job hunters.
+Welcome to V2.0 — the evolution is real. While V1 got you organized, V2.0 makes you *proactive*. We've added secure credential management, email outreach automation, recruiter relationship tracking, and an intelligent contact manager. This isn't just about tracking applications anymore — it's about building relationships and automating your follow-ups so you can focus on what matters: landing the job.
 
-Built with Streamlit, powered by SQLite, and polished through real job search frustration, this version is cleaner, faster, and more customizable — your digital command center for job hunting.
+Built with Streamlit, powered by SQLite, secured with Fernet encryption, and supercharged with email automation, V2.0 transforms your job search from reactive to strategic.
 
 ## 🆚 What’s New Since V0?
    **Feature**                | **V0 (Prototype)**                      | **V1 (This Version)**                                      |
@@ -17,90 +17,117 @@ Built with Streamlit, powered by SQLite, and polished through real job search fr
  | **Architecture**            | Spaghetti code                          | Modularized Python functions, cleaner flow                 |
  | **Vision**                  | Just tracking                           | Tracking + strategy dashboard for smarter applications     |
 
-## 🔧 Features
+## 🔧 Core Features
 
-✅ **Add New Job Applications**
-Store company names, job titles, application dates, and recruiter contacts — no more Excel sheets from hell.
+✅ **Track Job Applications Like a Pro**
+Store company names, job titles, dates, salaries, and recruiter contacts — no Excel hell allowed.
 
-✅ **Update & Track Application Status**
-Change statuses from "Applied" to "Interviewed", "Offered", or (let’s be real) "Ghosted".
+✅ **Recruiter & Contact Manager**
+Build and maintain relationships. Track interactions, notes, and communication history with every recruiter.
 
-✅ **Follow-up and Interview Dates**
-Set key dates and prepare like a pro (or panic responsibly).
+✅ **Secure Credential Storage**
+Save email credentials with Fernet encryption. Never hardcode passwords again.
 
-✅ **Priority System**
-Label apps as High, Medium, or Low priority so you focus on the juicy ones.
+✅ **Email Outreach Engine**
+Send templated follow-ups, reminders, and inquiries directly from the app. Stay persistent without being creepy.
+
+✅ **Smart Status Tracking**
+Move applications from "Applied" → "Interviewed" → "Offered" (or "Ghosted" — we all feel it).
+
+✅ **Priority & Filter System**
+Mark opportunities as High/Medium/Low. Filter by company, status, or date to focus on what matters.
 
 ✅ **Analytics Dashboard**
-See where you're winning, where you're wasting time, and how many HRs are ghosting you. 🎯
+Real metrics: response rates, average interview time-to-hire, ghosting stats, and outreach performance.
 
-## 🧠 Under the Hood
+✅ **Follow-up Scheduling**
+Set reminders, track key dates, and never miss a deadline again.
 
-V0 was a working prototype. V1 is a structured, modular product. Here's what changed:
+## 🧠 Under the Hood — Architecture
 
-- **Frontend**: Built with Streamlit for fast, reactive UI.
-- **Backend Logic**: Modularized Python functions for DB operations.
-- **Database**: SQLite for storage, with future options to plug into PostgreSQL or Supabase.
-- **Data Processing**: Powered by Pandas for analytics and visualization prep.
-- **State Management**: Session-based logic for smoother UX.
+V2.0 introduces a proper layered architecture:
 
-## 💼 Why I Built This
+- **Presentation Layer**: Streamlit UI with smart routing and context awareness
+- **Business Logic**: Modularized functions for applications, contacts, analytics, and outreach
+- **Security Layer**: Encrypted credential vault + password-protected master access
+- **Data Layer**: SQLite with structured schemas and validation
+- **Integration Layer**: Email engine with SMTP support and template system
 
-Let’s be honest — job hunting sucks. It's stressful, chaotic, and incredibly easy to lose track of everything. I built this project:
+**Key Components:**
+- `database.py` — SQL operations & schema management
+- `security.py` — Credential encryption & master password validation
+- `email_engine.py` — SMTP integration & outreach automation
+- `contacts_manager.py` — Recruiter database & relationship tracking
+- `analytics.py` — Pandas-powered insights & metrics
+- `job_application.py` — Core app logic
+- `outreach_ui.py` — Email & follow-up interface
+- `model.py` — Data models & validation
 
-- To organize my own job search across 40+ companies.
-- To learn how to structure an app using Streamlit + SQLite.
-- To explore how AI (like ChatGPT) could help me go from idea → MVP faster.
-- And now, to help others who are in the same boat.
+## 💼 Why V2.0?
 
-## 📷 Screenshots (V1)
-<!-- ## 📷 Screenshots & Demo (V1)
+Job hunting at scale is brutal. With 100+ applications flying out, it's impossible to:
+- Remember who you talked to
+- Stay consistent with follow-ups
+- Keep passwords safe
+- Spot patterns in your outreach success
 
-| **Dashboard** | **Add Application** | **Analytics** |
-|---------------|---------------------|---------------|
-| ![Dashboard](path-to-local-dashboard-image) | ![Add Application](path-to-local-add-application-image) | ![Analytics](path-to-local-analytics-image) |
+V2.0 solves this. It's the difference between *hoping* for callbacks and *earning* them through smart, persistent, organized outreach.
 
-### 🎥 Screencast Demo
+## � Installation & Running
 
-To view the screencast demo, locate the video file on your local system. Ensure it is accessible for playback or consider uploading it to a platform like YouTube for easier sharing. -->
-
-## 🛠 Installation & Running the App
-
-1. **Clone this repo**:
+1. **Clone & Navigate**:
     ```bash
-    git clone https://github.com/your-repo/job-tracker.git
-    cd job-tracker
+    git clone https://github.com/your-repo/applying-sets.git
+    cd applying-sets
     ```
 
-2. **Install requirements**:
+2. **Install Dependencies**:
     ```bash
     pip install -r requirements.txt
     ```
 
-3. **Run it**:
+3. **Set Master Password** (recommended):
     ```bash
-    streamlit run app.py
+    set MASTER_PASSWORD=your_secure_password
     ```
 
-## 🌱 Future Improvements
+4. **Run the App**:
+    ```bash
+    streamlit run Job_tracker.py
+    ```
 
-- 📧 Email Reminders for follow-ups
-- 📅 Google Calendar Integration
-- 📈 More Advanced Data Visualization
-- 🤖 AI-Powered Resume/Application Scoring
+## 🔐 Security & Privacy
+
+- Credentials stored with **Fernet symmetric encryption**
+- Master password protection for sensitive data
+- Salt-based key derivation (PBKDF2-SHA256)
+- No plaintext passwords in files or memory
+- File permissions set to 0o600 for encrypted files
+
+## 🌱 Roadmap — V2.1 & Beyond
+
+- 📅 Google Calendar Integration for interview prep
+- 🔔 SMS reminders for critical follow-ups
+- 🤖 AI-powered response scoring & suggestions
+- 📊 LinkedIn auto-import for applications
+- 🌐 Cloud sync (AWS S3 or similar)
+- 📱 Mobile companion app
+- 🎯 ML-based job matching & recommendations
 
 ## 🤝 Contribute
 
-Got feedback, want a feature, or just tired of being ghosted?
-Open an issue, drop a PR, or send me a message.
+Found a bug? Want a feature? Have outreach templates to share?
+Open an issue, submit a PR, or send feedback. This project thrives on real job searchers using it and demanding improvements.
 
 ## 📜 License
 
-Open-source under the MIT License. Use it. Fork it. Brag about it in interviews.
+MIT License. Use it. Improve it. Get hired with it. 🎉
 
 ## 🧠 Built With
 
-- **Streamlit**
-- **SQLite**
-- **Pandas**
-- **ChatGPT ,Copilot & Mistral Ai ** (massive help, not gonna lie)
+- **Streamlit** — Interactive UI
+- **SQLite** — Reliable local storage
+- **Pandas** — Analytics & data processing
+- **Cryptography (Fernet)** — Secure encryption
+- **ChatGPT, GitHub Copilot & Mistral AI** — Accelerated development
+- **Python 3.9+** — Core language
