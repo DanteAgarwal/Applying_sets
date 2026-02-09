@@ -5,7 +5,7 @@ from src.job_application import JobApplicationForm, JobManager
 from src.outreach_ui import (
     email_setup_ui, 
     template_manager_ui,
-    send_bulk_email_ui,
+    send_email_ui,
     import_export_ui
 )
 from src.contacts_manager import contacts_list_ui, add_contact_ui
@@ -726,7 +726,7 @@ def main():
         tabs = st.tabs(["🚀 CAMPAIGN", "⚙️ SETUP", "✉️ TEMPLATES", "📊 TRACKING", "📥 IMPORT/EXPORT"])
         
         with tabs[0]:
-            send_bulk_email_ui(session)  # Uses the smart version from outreach_ui
+            send_email_ui(session)  # Uses the smart version from outreach_ui
         
         with tabs[1]:
             email_setup_ui(session)
